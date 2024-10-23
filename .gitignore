@@ -485,3 +485,4 @@ $RECYCLE.BIN/
 
 # Custom Files
 src/AuctionService/appsettings.Development.json
+src/SearchService/appsettings.Development.json
