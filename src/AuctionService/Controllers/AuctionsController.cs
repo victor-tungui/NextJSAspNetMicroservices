@@ -6,6 +6,7 @@ using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using Contracts;
 using MassTransit;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -71,12 +72,13 @@ public class AuctionsController: ControllerBase
         return TypedResults.Ok(dto);
     }
 
+    [Authorize]
     [HttpPost]
     public async Task<ActionResult<AuctionDto>> CreateAuction(CreateAuctionDto auctionDto)
     {
         var auction = _mapper.Map<Auction>(auctionDto);
         //TODO: Add user as seller
-        auction.Seller = "Saul";
+        auction.Seller = User.Identity.Name;
 
         _context.Auctions.Add(auction);
 
@@ -98,6 +100,7 @@ public class AuctionsController: ControllerBase
         );
     }
 
+    [Authorize]    
     [HttpPut("{id}")]
     public async Task<ActionResult> UpdateAuction(Guid id, UpdateAuctionDto updateAuctionDto)
     {
@@ -107,6 +110,11 @@ public class AuctionsController: ControllerBase
         if (auction is null) 
         {
             return NotFound();
+        }
+
+        if (auction.Seller != User.Identity.Name) 
+        {
+            return Forbid();
         }
 
         // TODO: Check seller is the same username
@@ -128,6 +136,7 @@ public class AuctionsController: ControllerBase
         return BadRequest("Unable to update Auction");
     }
 
+    [Authorize]
     [HttpDelete("{id:guid}")]
     public async Task<ActionResult> DeleteAuction(Guid id)
     {
@@ -136,6 +145,11 @@ public class AuctionsController: ControllerBase
         if (auction is null) 
         {
             return NotFound();
+        }
+
+        if (auction.Seller != User.Identity.Name)
+        {
+            return Forbid();
         }
 
         // TODO: Validate user is seller
