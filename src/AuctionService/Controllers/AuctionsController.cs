@@ -4,6 +4,9 @@ using AuctionService.DTOs;
 using AuctionService.Entities;
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
+using Contracts;
+using MassTransit;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,11 +19,16 @@ public class AuctionsController: ControllerBase
 {
     private readonly AuctionDbContext _context;
     private readonly IMapper _mapper;
+    private readonly IPublishEndpoint _publishEndPoint;
 
-    public AuctionsController(AuctionDbContext context, IMapper mapper)
+    public AuctionsController(
+        AuctionDbContext context, 
+        IMapper mapper, 
+        IPublishEndpoint publishEndPoint)
     {
         _context = context;
         _mapper = mapper;
+        _publishEndPoint = publishEndPoint;
     }
 
     [HttpGet]
@@ -64,14 +72,19 @@ public class AuctionsController: ControllerBase
         return TypedResults.Ok(dto);
     }
 
+    [Authorize]
     [HttpPost]
     public async Task<ActionResult<AuctionDto>> CreateAuction(CreateAuctionDto auctionDto)
     {
         var auction = _mapper.Map<Auction>(auctionDto);
         //TODO: Add user as seller
-        auction.Seller = "Saul";
+        auction.Seller = User.Identity.Name;
 
         _context.Auctions.Add(auction);
+
+        var newAuction = _mapper.Map<AuctionDto>(auction);
+        
+        await _publishEndPoint.Publish(_mapper.Map<AuctionCreated>(newAuction));
 
         var result = await _context.SaveChangesAsync() > 0;
 
@@ -83,10 +96,11 @@ public class AuctionsController: ControllerBase
         return CreatedAtAction(
             nameof(GetAuctionById),
             new{auction.Id},
-            _mapper.Map<AuctionDto>(auction)
+            newAuction
         );
     }
 
+    [Authorize]    
     [HttpPut("{id}")]
     public async Task<ActionResult> UpdateAuction(Guid id, UpdateAuctionDto updateAuctionDto)
     {
@@ -98,12 +112,19 @@ public class AuctionsController: ControllerBase
             return NotFound();
         }
 
+        if (auction.Seller != User.Identity.Name) 
+        {
+            return Forbid();
+        }
+
         // TODO: Check seller is the same username
         auction.Item.Make = updateAuctionDto.Make ?? auction.Item.Make;
         auction.Item.Model = updateAuctionDto.Model ?? auction.Item.Model;
         auction.Item.Color = updateAuctionDto.Color ?? auction.Item.Color;
         auction.Item.Mileage = updateAuctionDto.Mileage ?? auction.Item.Mileage;
         auction.Item.Year = updateAuctionDto.Year ?? auction.Item.Year;
+
+        await _publishEndPoint.Publish(_mapper.Map<AuctionUpdated>(auction));
 
         var result = await _context.SaveChangesAsync() > 0;
 
@@ -115,6 +136,7 @@ public class AuctionsController: ControllerBase
         return BadRequest("Unable to update Auction");
     }
 
+    [Authorize]
     [HttpDelete("{id:guid}")]
     public async Task<ActionResult> DeleteAuction(Guid id)
     {
@@ -125,8 +147,15 @@ public class AuctionsController: ControllerBase
             return NotFound();
         }
 
+        if (auction.Seller != User.Identity.Name)
+        {
+            return Forbid();
+        }
+
         // TODO: Validate user is seller
         _context.Auctions.Remove(auction);
+
+        await _publishEndPoint.Publish<AuctionDeleted>(new { Id = auction.Id.ToString() });
 
         var result = await _context.SaveChangesAsync() > 0;
 
